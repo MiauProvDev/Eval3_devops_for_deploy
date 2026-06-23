@@ -5,11 +5,6 @@ metadata:
   namespace: apps
 spec:
   replicas: 2
-  strategy:
-    type: RollingUpdate
-    rollingUpdate:
-      maxUnavailable: 1
-      maxSurge: 0
   selector:
     matchLabels:
       app: frontend-despacho
@@ -23,12 +18,7 @@ spec:
           image: ${FRONTEND_DESPACHO_IMAGE}
           imagePullPolicy: Always
           ports:
-            - containerPort: 8080
-          env:
-            - name: BACKEND_HOST
-              value: "backend-ventas"
-            - name: BACKEND_HOST_DESPACHOS
-              value: "backend-despachos"
+            - containerPort: 80
           resources:
             requests:
               cpu: "100m"
