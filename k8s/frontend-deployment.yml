@@ -18,7 +18,12 @@ spec:
           image: ${FRONTEND_DESPACHO_IMAGE}
           imagePullPolicy: Always
           ports:
-            - containerPort: 80
+            - containerPort: 8080
+          env:
+            - name: BACKEND_HOST
+              value: "backend-ventas"
+            - name: BACKEND_HOST_DESPACHOS
+              value: "backend-despachos"
           resources:
             requests:
               cpu: "100m"
