@@ -1,18 +1,8 @@
-# Terraform AWS Infrastructure — Proyecto DevOps (EP2)
+# Proyecto DevOps — EP3 (EKS + Kubernetes)
 
 ## Descripción
 
-Infraestructura y aplicación gestionadas con **Terraform** y **Docker** para desplegar una arquitectura de microservicios en **AWS**, alineada con la evaluación EP2 (Innovatech Chile):
-
-- **VPC** con subred **pública** y subred **privada**.
-- **EC2 frontend** (React + nginx) como único punto de acceso desde Internet.
-- **EC2 backend** (Spring Boot: ventas y despachos) en subred privada.
-- **EC2 MySQL** con volumen Docker para persistencia de datos.
-- **NAT Gateway** para que instancias privadas descarguen imágenes desde **ECR**.
-- **Repositorios ECR** para las imágenes de contenedores.
-- **GitHub Actions**: CI en `main`/`develop` y CD en rama `deploy`.
-
-Solo el **frontend** es accesible desde Internet. El tráfico hacia los backends pasa por el proxy nginx del frontend, usando IPs privadas dentro de la VPC.
+Infraestructura y aplicación desplegadas en **AWS EKS** usando **Terraform**, **Kubernetes** y **GitHub Actions**. La arquitectura corre como microservicios en un cluster EKS con imágenes almacenadas en Amazon ECR.
 
 ---
 
@@ -23,50 +13,58 @@ Solo el **frontend** es accesible desde Internet. El tráfico hacia los backends
 | Felipe Ardiles | Infraestructura AWS, Docker, CI/CD, Terraform | Repositorio principal |
 | Renato Herrera | Desarrollo backend, apoyo en despliegue y documentación | idkraes17@gmail.com |
 
-Los commits del proyecto EP2 incluyen coautoría de **Renato Herrera** (`Co-authored-by`) cuando corresponde a trabajo en pareja.
-
 ---
 
 ## Componentes de la aplicación
 
-| Servicio | Tecnología | Despliegue |
-|----------|------------|------------|
-| Frontend | React + Vite + nginx (sin root) | EC2 pública — puerto 80 |
-| Backend Ventas | Spring Boot (Java 17) | EC2 privada — puerto 8080 |
-| Backend Despachos | Spring Boot (Java 17) | EC2 privada — puerto 8081 |
-| MySQL 8 | Docker + volumen `mysql_data` | EC2 privada — puerto 3306 |
+| Servicio | Tecnología | Puerto |
+|----------|------------|--------|
+| Frontend | React + Vite + nginx | 80 |
+| Backend Ventas | Spring Boot (Java 17) | 8080 |
+| Backend Despachos | Spring Boot (Java 17) | 8081 |
+| MySQL 8 | Imagen oficial | 3306 |
 
 ---
 
 ## Estructura del proyecto
 
 ```text
-proyecto-semestral/
+devops-2/
 ├── .github/workflows/
-│   ├── ci.yml                    # Build de imágenes (main, develop)
-│   └── cd.yml                    # Build + ECR + deploy EC2 (deploy)
+│   ├── ci.yml          # Build de imágenes Docker (main, develop)
+│   └── cd.yml          # Build + push ECR + deploy en EKS (rama deploy)
 ├── back-Ventas_SpringBoot/
-│   └── Springboot-API-REST/      # API ventas + Dockerfile
+│   └── Springboot-API-REST/            # API ventas + Dockerfile
 ├── back-Despachos_SpringBoot/
-│   └── Springboot-API-REST-DESPACHO/
-├── front_despacho/               # Frontend + Dockerfile + nginx template
+│   └── Springboot-API-REST-DESPACHO/   # API despachos + Dockerfile
+├── front_despacho/                     # Frontend React + Dockerfile + nginx
 ├── infra/
-│   ├── etapa_1/                  # Registro ECR (3 repositorios)
-│   │   ├── main.tf
-│   │   ├── variables.tf
-│   │   └── outputs.tf
-│   └── etapa_2/                  # VPC, EC2, SG, NAT
-│       ├── main.tf
+│   ├── etapa_1/        # Infraestructura EP1
+│   ├── etapa_2/        # Infraestructura EP2
+│   └── etapa_3/        # Terraform EKS (EP3 — activo)
+│       ├── main.tf     # Versiones y provider AWS
 │       ├── variables.tf
-│       ├── outputs.tf
-│       └── templates/            # user_data (docker compose en EC2)
-│           ├── mysql_user_data.sh
-│           ├── backend_user_data.sh
-│           └── frontend_user_data.sh
-├── scripts/                      # Opcional: automatización local
-│   ├── deploy-evaluacion.sh
-│   └── deploy.env.example
-├── docker-compose.yml            # Entorno local
+│       ├── locals.tf   # Tags comunes y lista de repos ECR
+│       ├── vpc.tf      # VPC, subredes públicas, IGW, route tables
+│       ├── security.tf # Security Groups para cluster y nodos
+│       ├── eks.tf      # Cluster EKS + Node Group (usa LabRole)
+│       ├── ecr.tf      # 3 repositorios ECR con for_each
+│       └── outputs.tf
+├── k8s/                # Manifiestos de Kubernetes
+│   ├── namespace.yml
+│   ├── configmap.yml
+│   ├── secrets.yml
+│   ├── mysql-deployment.yml
+│   ├── mysql-service.yml
+│   ├── backend-ventas-deployment.yml
+│   ├── backend-ventas-service.yml
+│   ├── backend-despachos-deployment.yml
+│   ├── backend-despachos-service.yml
+│   ├── frontend-deployment.yml
+│   ├── frontend-service.yml
+│   ├── hpa.yml
+│   └── .env.example
+├── docker-compose.yml  # Entorno local
 ├── .env.example
 └── README.md
 ```
@@ -75,16 +73,38 @@ proyecto-semestral/
 
 ## Requisitos
 
-| Herramienta | Versión / nota |
-|-------------|----------------|
-| **Terraform CLI** | >= 1.0 |
-| **AWS CLI** (`aws`) | Credenciales del **AWS Academy Learner Lab** |
-| **Docker** | Para build local y push a ECR |
-| **Git** | Control de versiones |
+| Herramienta | Nota |
+|-------------|------|
+| **Terraform CLI** | >= 1.6.0 |
+| **AWS CLI** | Credenciales del AWS Academy Learner Lab |
+| **kubectl** | Para interactuar con el cluster EKS |
+| **Docker** | Para build local |
 | **Provider AWS** | `hashicorp/aws` ~> 5.0 |
-| **Key pair** | `vockey` (Download PEM del lab → `~/.ssh/vockey.pem`) |
 
-Permisos necesarios en la cuenta del lab: creación de VPC, EC2, ECR, IAM (rol `LabRole`).
+---
+
+## Flujo de datos
+
+```
+Usuario (Internet)
+        │  HTTP :80
+        ▼
+LoadBalancer (AWS ELB — frontend-despacho-service)
+        │
+        ▼
+Pod Frontend — nginx (namespace: apps)
+        │
+        ├─ /api/ventas/*    → backend-ventas-service :8080
+        └─ /api/despachos/* → backend-despachos-service :8081
+                                      │
+                                      ▼
+                              Pod Backend (Spring Boot)
+                                      │  JDBC :3306
+                                      ▼
+                              Pod MySQL (mysql-service)
+
+GitHub Actions → ECR → EKS (kubectl apply)
+```
 
 ---
 
@@ -93,94 +113,53 @@ Permisos necesarios en la cuenta del lab: creación de VPC, EC2, ECR, IAM (rol `
 ### 1. Clona el repositorio
 
 ```bash
-git clone https://github.com/FelipeArdiles/devops-ev2.git
-cd devops-ev2
+git clone <url-del-repo>
+cd devops-2
 ```
 
 ### 2. Configura credenciales AWS
 
 ```bash
-aws configure
-# O exporta AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY y AWS_SESSION_TOKEN del panel del lab
+export AWS_ACCESS_KEY_ID=...
+export AWS_SECRET_ACCESS_KEY=...
+export AWS_SESSION_TOKEN=...
+
 aws sts get-caller-identity
 ```
 
-### 3. Inicializa y despliega la infraestructura (Terraform)
-
-**Etapa 1 — ECR:**
+### 3. Despliega la infraestructura con Terraform
 
 ```bash
-cd infra/etapa_1
+cd infra/etapa_3
 terraform init
 terraform plan
 terraform apply
 ```
 
-**Etapa 2 — VPC + EC2:**
+Esto crea:
+- VPC con 2 subredes públicas
+- Security Groups para el cluster y los nodos
+- Cluster EKS + Node Group (instancias SPOT `t3.large`)
+- 3 repositorios ECR: `frontend-despacho`, `backend-ventas`, `backend-despachos`
+
+### 4. Conecta kubectl al cluster
 
 ```bash
-cd ../etapa_2
-terraform init
-terraform plan \
-  -var="db_password=root" \
-  -var="db_name=proyecto_db" \
-  -var="key_pair_name=vockey"
-terraform apply \
-  -var="db_password=root" \
-  -var="db_name=proyecto_db" \
-  -var="key_pair_name=vockey"
+aws eks update-kubeconfig --region us-east-1 --name devops-u2-eks
 ```
 
-### 4. Obtén las IPs de salida
+### 5. Deploy automático (GitHub Actions)
 
-```bash
-terraform output frontend_public_ip      # URL pública de la app
-terraform output backend_private_ip    # Para secrets / proxy interno
-terraform output frontend_url
-```
+Hacer push a la rama `deploy` dispara el pipeline completo:
 
-### 5. Build y push de imágenes a ECR
+1. Build de las 3 imágenes Docker (`linux/amd64`)
+2. Push a ECR con tag `${{ github.sha }}`
+3. Reemplaza variables de imagen en los manifiestos con `envsubst`
+4. `kubectl apply` de todos los manifiestos en orden
+5. Espera rollout de cada deployment
+6. Muestra la URL del LoadBalancer del frontend
 
-```bash
-aws ecr get-login-password --region us-east-1 | \
-  docker login --username AWS --password-stdin <ACCOUNT_ID>.dkr.ecr.us-east-1.amazonaws.com
-
-# Build y push (ejemplo backend ventas)
-docker build --platform linux/amd64 \
-  -t <ACCOUNT_ID>.dkr.ecr.us-east-1.amazonaws.com/devops-u2-backend-ventas:latest \
-  ./back-Ventas_SpringBoot/Springboot-API-REST
-docker push <ACCOUNT_ID>.dkr.ecr.us-east-1.amazonaws.com/devops-u2-backend-ventas:latest
-# Repetir para backend-despachos y frontend
-```
-
-### 6. Despliegue en las EC2 (SSH)
-
-En cada instancia existe `/opt/app/deploy.sh` (creado por `user_data`). Desde tu máquina:
-
-```bash
-# Backend (vía bastión — frontend)
-ssh -i ~/.ssh/vockey.pem \
-  -o ProxyCommand="ssh -i ~/.ssh/vockey.pem -W %h:%p ec2-user@<IP_FRONTEND>" \
-  ec2-user@<IP_BACKEND_PRIVADA> 'sudo /opt/app/deploy.sh'
-
-# Frontend (actualizar IP del backend en .env antes del deploy)
-ssh -i ~/.ssh/vockey.pem ec2-user@<IP_FRONTEND> \
-  'sudo sed -i "s/^BACKEND_HOST=.*/BACKEND_HOST=<IP_BACKEND_PRIVADA>/" /opt/app/.env && \
-   sudo sed -i "s/^BACKEND_HOST_DESPACHOS=.*/BACKEND_HOST_DESPACHOS=<IP_BACKEND_PRIVADA>/" /opt/app/.env && \
-   sudo /opt/app/deploy.sh'
-```
-
-**Alternativa (script opcional):**
-
-```bash
-cp scripts/deploy.env.example scripts/deploy.env
-chmod +x scripts/deploy-evaluacion.sh
-./scripts/deploy-evaluacion.sh deploy    # Todo el flujo
-./scripts/deploy-evaluacion.sh redeploy  # Solo SSH (imágenes ya en ECR)
-./scripts/deploy-evaluacion.sh destroy   # Destruir infra AWS
-```
-
-### 7. Desarrollo local (sin AWS)
+### 6. Desarrollo local (sin AWS)
 
 ```bash
 cp .env.example .env
@@ -195,191 +174,73 @@ docker compose up --build
 
 ---
 
-## ¿Qué despliega este proyecto?
+## CI/CD — GitHub Actions
 
-### Etapa 1 — `infra/etapa_1` (registro de imágenes)
+| Archivo | Trigger | Qué hace |
+|---------|---------|----------|
+| `ci.yml` | Push / PR a `main` o `develop` | Construye las 3 imágenes para validar que compilan |
+| `cd.yml` | Push a `deploy` | Build + push ECR + deploy completo en EKS |
 
-Crea tres repositorios en **Amazon ECR**:
+### Variables y Secrets requeridos en GitHub
 
-- `devops-u2-backend-ventas`
-- `devops-u2-backend-despachos`
-- `devops-u2-frontend`
+**Repository Variables** (`Settings → Variables`):
 
-### Etapa 2 — `infra/etapa_2` (red y cómputo)
+| Variable | Ejemplo |
+|----------|---------|
+| `AWS_REGION` | `us-east-1` |
+| `EKS_CLUSTER_NAME` | `devops-u2-eks` |
+| `K8S_NAMESPACE` | `apps` |
+| `ECR_FRONTEND_REPOSITORY` | `frontend-despacho` |
+| `ECR_VENTAS_REPOSITORY` | `backend-ventas` |
+| `ECR_DESPACHOS_REPOSITORY` | `backend-despachos` |
 
-| Recurso | Descripción |
-|---------|-------------|
-| **VPC** `10.0.0.0/16` | Red virtual del proyecto |
-| **Subred pública** `10.0.1.0/24` | EC2 frontend + Internet Gateway |
-| **Subred privada** `10.0.2.0/24` | EC2 backend + EC2 MySQL |
-| **NAT Gateway** | Salida a Internet para subred privada (pull ECR) |
-| **Security Groups** | Solo puerto 80/22 públicos en frontend; backends solo desde frontend |
-| **EC2 frontend** | Contenedor nginx + React (proxy a backend privado) |
-| **EC2 backend** | Contenedores Spring Boot (8080, 8081) |
-| **EC2 MySQL** | Contenedor MySQL con volumen persistente |
-
-Los `outputs` de Terraform exponen IPs, URLs y URLs de ECR para integrar con CI/CD.
-
-### Aplicación y CI/CD
-
-- **Dockerfiles** multi-stage y ejecución con **usuario no root**.
-- **`docker-compose.yml`** local con red `app-network` y volumen MySQL.
-- **`ci.yml`**: valida build en push a `main` / `develop`.
-- **`cd.yml`**: en push a `deploy` → build, push ECR, deploy SSH a EC2.
-
----
-
-## Flujo de ramas (Git)
-
-| Rama | Uso | Workflow |
-|------|-----|----------|
-| `main` / `develop` | Desarrollo e integración | `ci.yml` — solo build |
-| `deploy` | Producción en AWS | `cd.yml` — build + ECR + deploy |
-
-```bash
-git checkout deploy
-git merge main
-git push origin deploy
-```
-
-### Secrets de GitHub Actions
-
-Configurar en **Settings → Secrets and variables → Actions**:
+**Repository Secrets** (`Settings → Secrets`):
 
 | Secret | Descripción |
 |--------|-------------|
 | `AWS_ACCESS_KEY_ID` | Del Learner Lab |
 | `AWS_SECRET_ACCESS_KEY` | Del lab |
 | `AWS_SESSION_TOKEN` | Del lab (sesiones temporales) |
-| `AWS_ACCOUNT_ID` | ID de cuenta AWS |
-| `EC2_SSH_PRIVATE_KEY` | Contenido completo de `~/.ssh/vockey.pem` |
-| `EC2_FRONTEND_HOST` | `terraform output frontend_public_ip` |
-| `EC2_BACKEND_PRIVATE_IP` | `terraform output backend_private_ip` |
-
-> Tras cada `terraform apply` que cambie IPs, actualiza los secrets `EC2_*`.
 
 ---
 
-## Diagrama de arquitectura
+## Infraestructura EKS — detalle
 
-### Vista general (estilo AWS)
-
-![Diagrama de arquitectura AWS](docs/arquitectura-aws.png)
-
-> Iconografía inspirada en [AWS Architecture Icons](https://aws.amazon.com/architecture/icons/).  
-> Colores de referencia: naranja AWS `#FF9900`, fondo oscuro `#232F3E`.
-
-### Vista interactiva (Mermaid)
-
-Leyenda: **azul** = subred pública · **violeta** = subred privada · **naranja** = servicios AWS/compute · **gris oscuro** = red y CI/CD
-
-```mermaid
-%%{init: {'theme': 'base', 'themeVariables': {'fontSize': '13px', 'lineColor': '#232F3E'}}}%%
-flowchart TB
-    USUARIO(["👤 Usuario / Internet"])
-    DEV(["👨‍💻 Dev · rama deploy"])
-
-    subgraph AWS["☁️  AWS Cloud · us-east-1"]
-        direction TB
-
-        subgraph CICD["Pipeline CI/CD"]
-            direction LR
-            GH["⚙️ GitHub Actions<br/><i>build · push · SSH</i>"]
-            ECR[("📦 Amazon ECR<br/>3 repositorios")]
-            GH -->|"① build & push"| ECR
-        end
-
-        subgraph VPC["🔒 Amazon VPC · 10.0.0.0/16"]
-            direction TB
-
-            subgraph PUB["🌐 Subred pública · 10.0.1.0/24"]
-                direction TB
-                IGW["🔗 Internet Gateway"]
-                FE["🖥️ Amazon EC2 · frontend<br/>nginx · puerto <b>80</b><br/><i>único acceso Internet</i>"]
-            end
-
-            subgraph PRIV["🔐 Subred privada · 10.0.2.0/24"]
-                direction TB
-                NAT["↔️ NAT Gateway"]
-                BE["🖥️ Amazon EC2 · backend<br/>Ventas <b>8080</b> · Despachos <b>8081</b>"]
-                DB[("🗄️ Amazon EC2 · MySQL<br/>Docker + volumen persistente")]
-            end
-
-            FE -->|"② API proxy<br/>(IP privada)"| BE
-            BE -->|"③ JDBC :3306"| DB
-            BE --> NAT
-            DB --> NAT
-            NAT --> IGW
-        end
-
-        ECR -.->|"④ docker pull"| FE
-        ECR -.->|"④ docker pull"| BE
-        GH -.->|"⑤ SSH deploy"| FE
-        GH -.->|"⑤ SSH bastión"| BE
-    end
-
-    USUARIO -->|"HTTP :80"| FE
-    DEV --> GH
-    IGW --> USUARIO
-
-    classDef internet fill:#E5E7EB,stroke:#6B7280,color:#111827
-    classDef cicd fill:#232F3E,stroke:#FF9900,color:#FFFFFF
-    classDef ecr fill:#FF9900,stroke:#232F3E,color:#232F3E
-    classDef pubSubnet fill:#DBEAFE,stroke:#2563EB,color:#1E40AF
-    classDef privSubnet fill:#EDE9FE,stroke:#7C3AED,color:#5B21B6
-    classDef compute fill:#FF9900,stroke:#232F3E,color:#232F3E
-    classDef network fill:#232F3E,stroke:#FF9900,color:#FFFFFF
-    classDef data fill:#059669,stroke:#047857,color:#FFFFFF
-
-    class USUARIO,DEV internet
-    class GH network
-    class ECR ecr
-    class IGW,NAT network
-    class FE,BE compute
-    class DB data
-```
-
-#### Flujo resumido
-
-| Paso | Qué ocurre |
-|------|------------|
-| ① | GitHub Actions construye imágenes y las sube a **ECR** |
-| ② | El **frontend** (público) enruta `/api/*` al **backend** por red privada |
-| ③ | Los backends persisten datos en **MySQL** (volumen Docker) |
-| ④ | Las EC2 privadas descargan imágenes desde ECR vía **NAT** |
-| ⑤ | El pipeline despliega en EC2 por **SSH** (frontend como bastión al backend) |
+| Recurso | Detalle |
+|---------|---------|
+| **VPC** `10.0.0.0/16` | DNS habilitado |
+| **Subredes públicas** | `10.0.1.0/24` y `10.0.2.0/24` en 2 AZs |
+| **Internet Gateway** | Acceso a Internet |
+| **EKS Cluster** | Kubernetes 1.32, acceso público + privado |
+| **Node Group** | SPOT `t3.large`, 1–3 nodos (desired: 2) |
+| **IAM** | Usa el `LabRole` existente de AWS Academy |
+| **ECR** | 3 repos con `IMMUTABLE` tags y scan on push |
 
 ---
 
-## Mejores prácticas incluidas
+## Kubernetes — detalle
 
-- **Variables** centralizadas en `infra/etapa_2/variables.tf` y parámetros en `apply`.
-- **Outputs** para IPs, URL del frontend y registros ECR.
-- **Separación por etapas**: etapa_1 (ECR) y etapa_2 (red + cómputo).
-- **Plantillas `user_data`** para bootstrap reproducible en cada EC2.
-- **Security groups** con principio de mínimo privilegio (solo frontend expuesto).
-- **Contenedores** con multi-stage build y usuario no root.
-- **`.gitignore`** para `.env`, `*.pem` y `terraform.tfstate`.
-- **CI/CD** con ramas diferenciadas (`main` vs `deploy`).
+Todos los recursos corren en el namespace `apps`.
 
----
-
-## Cómo extender este proyecto
-
-- Añadir **Application Load Balancer** delante del frontend.
-- Incorporar **RDS** en lugar de MySQL en EC2.
-- Migrar estado de Terraform a **backend remoto** (S3 + DynamoDB lock).
-- Añadir **CloudWatch** alarms y logs centralizados.
-- Integrar **Terraform Cloud** o validación con `terraform fmt` / `tflint` en CI.
-- Automatizar rotación de secrets con **AWS Secrets Manager**.
+| Manifiesto | Tipo | Descripción |
+|------------|------|-------------|
+| `namespace.yml` | Namespace | Namespace `apps` |
+| `configmap.yml` | ConfigMap | Variables de conexión a DB |
+| `secrets.yml` | Secret | Credenciales MySQL |
+| `mysql-*.yml` | Deployment + Service | MySQL 8, ClusterIP |
+| `backend-ventas-*.yml` | Deployment + Service | Spring Boot :8080, 2 réplicas, ClusterIP |
+| `backend-despachos-*.yml` | Deployment + Service | Spring Boot :8081, 2 réplicas, ClusterIP |
+| `frontend-*.yml` | Deployment + Service | nginx :80, 2 réplicas, **LoadBalancer** |
+| `hpa.yml` | HPA | Autoscaling por CPU (50–60%) en los 3 servicios |
 
 ---
 
-## Cumplimiento EP2 (referencia rápida)
+## Buenas prácticas incluidas
 
-- Multi-stage Dockerfiles y usuario no root.
-- `docker-compose` local con redes y volúmenes.
-- Frontend en EC2 pública; backends y MySQL en subred privada.
-- Persistencia MySQL con volumen Docker.
-- Pipeline: build → ECR → despliegue en EC2 (rama `deploy`).
-- Solo el frontend accesible desde Internet.
+- **Terraform modularizado** por etapas; `etapa_3` es completamente independiente.
+- **`LabRole` reutilizado** — no se crean roles IAM propios, compatible con AWS Academy.
+- **ECR con tags inmutables** — evita sobreescribir imágenes ya desplegadas.
+- **`envsubst`** en el pipeline para inyectar las URLs de imagen en los manifiestos sin modificar los archivos fuente.
+- **HPA** configurado en los 3 servicios para escalar automáticamente bajo carga.
+- **Dockerfiles multi-stage** con usuario no root en todos los servicios.
+- **Health checks** en los backends; MySQL espera estar listo antes de que arranquen.
